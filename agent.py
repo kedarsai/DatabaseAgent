@@ -1,6 +1,7 @@
 from database import DatabaseConnection
 from utils import format_table_schema, format_table_profile, format_table_list
 from llm import LLMHandler
+import json
 
 class DatabaseAgent:
     def __init__(self):
@@ -40,17 +41,24 @@ class DatabaseAgent:
             print("No tables available to process the question.")
             return
 
-        # Use LLM to identify the table
-        table_name = self.llm.identify_table(question, tables)
-        if not table_name:
-            print("Could not identify which table you're asking about.")
+        # Use LLM to determine which operation to perform
+        result = self.llm.process_question(question, tables)
+        if not result:
+            print("Could not determine which operation to perform.")
             return
 
-        print(f"\nIdentified table: {table_name}")
-        
-        # Get schema and profile for the identified table
-        self.get_table_schema(table_name)
-        self.profile_table(table_name)
+        # Execute the selected operation
+        tool_name = result["tool_name"]
+        parameters = json.loads(result["parameters"])
+
+        if tool_name == "list_tables":
+            return self.get_database_tables()
+        elif tool_name == "get_table_schema":
+            return self.get_table_schema(parameters["table_name"])
+        elif tool_name == "profile_table":
+            return self.profile_table(parameters["table_name"])
+        else:
+            print(f"Unknown operation: {tool_name}")
 
 def main():
     # Create an instance of the agent
@@ -63,13 +71,15 @@ def main():
         
         # Example questions
         questions = [
-            "Show me the structure of the vendors table",
-            "What's in the customers table?",
-            "Tell me about the orders table"
+            "Show me all the tables in the database",
+            "What's the structure of the vendors table?",
+            "Give me statistics about the customers table",
+            "Profile the vendors table"
         ]
         
         # Process each question
         for question in questions:
+            print("-----------------question---------------")
             print(f"\nProcessing question: {question}")
             agent.process_question(question)
     else:

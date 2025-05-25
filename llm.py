@@ -2,6 +2,7 @@ import os
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
+from tools import get_tool_schemas
 
 class LLMHandler:
     def __init__(self):
@@ -28,44 +29,48 @@ class LLMHandler:
         """Create a prompt for the LLM"""
         table_context = self._create_table_context(tables)
         
-        return f"""Given the following question about database tables, identify which table is being referred to.
+        return f"""Given the following question about database tables, determine which database operation to perform.
 Available tables:
 {table_context}
 
 Question: {question}
 
-Please respond with ONLY the table name that best matches the question. If no table matches, respond with 'None'.
-Do not include any explanations or additional text."""
+Please analyze the question and determine which database operation would be most appropriate."""
 
-    def identify_table(self, question: str, tables: List[Dict]) -> Optional[str]:
-        """Identify which table is being referred to in the question"""
+    def process_question(self, question: str, tables: List[Dict]) -> Dict:
+        """Process a question and determine which database operation to perform"""
         try:
             # Create the prompt
             prompt = self._create_prompt(question, tables)
             # print(prompt)
-            # Call the LLM using the new API format
+            
+            # Get available tools
+            tools = get_tool_schemas()
+            
+            # Call the LLM using function calling
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a database expert that helps identify tables from natural language questions."},
+                    {"role": "system", "content": "You are a database expert that helps determine which database operations to perform based on natural language questions."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=self.temperature,
+                tools=[{"type": "function", "function": tool} for tool in tools],
+                tool_choice="auto",
+                temperature=0,
                 max_tokens=self.max_tokens
             )
             
-            # Extract the table name from the response
-            table_name = response.choices[0].message.content.strip()
+            # Extract the function call from the response
+            message = response.choices[0].message
             
-            # Validate the response
-            if table_name.lower() == 'none':
-                return None
-                
-            # Check if the table exists in our list
-            table_names = [f"{t['schema']}.{t['name']}" for t in tables]
-            if table_name in table_names:
-                return table_name
-                
+            if message.tool_calls:
+                tool_call = message.tool_calls[0]
+                print(tool_call.function.name, tool_call.function.arguments)
+                return {
+                    "tool_name": tool_call.function.name,
+                    "parameters": tool_call.function.arguments
+                }
+            
             return None
             
         except Exception as e:
